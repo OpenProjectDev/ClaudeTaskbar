@@ -1,0 +1,40 @@
+name: claude_taskbar_settings
+description: "Claude Taskbar's settings window"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  window_manager: ^0.5.1
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: false
+
+  assets:
+    # License texts for the Licenses screen (lib/licenses.dart).
+    - assets/licenses/
+    - assets/fonts/manrope/OFL.txt
+    # This app's own mark, for About.
+    - assets/claudetaskbar-mark.png
+
+  fonts:
+    # Manrope (SIL Open Font License 1.1, assets/fonts/manrope/OFL.txt), the
+    # family's font. Each weight is Manrope's of the same number; w400, the
+    # default, is its Medium, the lightest cut used here.
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/manrope/Manrope-500.ttf
+          weight: 400
+        - asset: assets/fonts/manrope/Manrope-500.ttf
+          weight: 500
+        - asset: assets/fonts/manrope/Manrope-600.ttf
+          weight: 600
+        - asset: assets/fonts/manrope/Manrope-700.ttf
+          weight: 700

@@ -1,0 +1,17 @@
+# .NET build output
+bin/
+obj/
+publish/
+out/
+*.user
+.vs/
+
+# Flutter (settings_app has its own .gitignore too)
+.dart_tool/
+build/
+
+# OS and editors
+Thumbs.db
+.DS_Store
+.vscode/
+*.swp

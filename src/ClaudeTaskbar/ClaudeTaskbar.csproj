@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>ClaudeTaskbar</AssemblyName>
+    <RootNamespace>ClaudeTaskbar</RootNamespace>
+    <!-- The app icon, drawn by OpenDesign (icon/, GPL like the rest). -->
+    <ApplicationIcon>..\..\icon\claudetaskbar.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+    <!-- Pulls in the Windows Desktop shared framework: SoundPlayer lives there (build fails
+         with CS0103 without it). The circles and tooltip stay raw Win32. -->
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The Claude Code hook script, installed through the settings app (HookInstaller, Cli).
+         The repository's hooks/ copy is the source of truth. -->
+    <EmbeddedResource Include="..\..\hooks\claude-taskbar-hook.ps1" LogicalName="claude-taskbar-hook.ps1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Anti-aliased circles and text: drawn with Graphics.FromImage onto a DIB section and
+         composited with UpdateLayeredWindow, which avoids flicker and pixelated edges. -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.10" />
+    <!-- Tab order and focus within a capsule: reads VS Code's own workspaceStorage
+         state.vscdb (SQLite), see VsCodeEditorStateReader.cs. An undocumented source, so it
+         was tested in isolation before it was added. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+  </ItemGroup>
+
+</Project>
