@@ -179,7 +179,40 @@ public sealed class SessionStore : IDisposable
         // folder and showed as capsule members. A session VS Code
         // doesn't list as a tab is now shown only if it has a transcript, i.e. something was
         // said in it. A brand-new real tab appears once VS Code saves its tab list (~60s).
-        return sessions.Where(s => s.WindowHandle.HasValue && (s.IsOpenAsTab || HasTranscript(s))).ToList();
+        return sessions.Where(s => s.WindowHandle.HasValue && (s.IsOpenAsTab || (HasTranscript(s) && !ClosedAsTab(s, open)))).ToList();
+    }
+
+    /// <summary>Grace a session that isn't (yet) in its window's saved tab list gets, for a
+    /// new tab VS Code hasn't saved yet.</summary>
+    private static readonly TimeSpan NewTabGrace = TimeSpan.FromMinutes(2);
+
+    /// <summary>True when the session's window has saved its tab list since the session's
+    /// last sign of life, and the session isn't in it: VS Code itself recorded that the tab
+    /// is gone.
+    ///
+    /// BUG found live, 2026-11-09 (a closed tab's circle stayed in the OpenDisk capsule,
+    /// "Idle for a while", for hours): closing a Claude tab fires no SessionEnd, and a
+    /// session with a transcript was shown while its window was open, to cover a new tab
+    /// before VS Code saves its tab list. Here the session's last sign was its resume at
+    /// 05:19 UTC and VS Code saved the window's tabs at 06:09 without it. Last sign of life
+    /// is the latest of the hook state's time, the transcript's conversation activity and
+    /// the transcript file's own write time; the tab list's save time is state.vscdb's.
+    /// VS Code only rewrites that file when editor state changes, so a session active after
+    /// the last save keeps showing, and a brand-new one gets <see cref="NewTabGrace"/>.</summary>
+    private static bool ClosedAsTab(SessionState s, List<OpenWindow> open)
+    {
+        var window = open.FirstOrDefault(w => w.Hwnd == s.WindowHandle);
+        if (window?.Tabs == null) return false; // no tab list to go by: show it
+        var lastSign = s.UpdatedAtUtc;
+        if (LastActivityReader.GetLastActivityUtcForTranscript(s.TranscriptPath) is { } act && act > lastSign) lastSign = act;
+        try
+        {
+            var written = File.GetLastWriteTimeUtc(s.TranscriptPath!);
+            if (written > lastSign) lastSign = written;
+        }
+        catch { /* gone: the other two signs stand */ }
+        if (DateTime.UtcNow - lastSign < NewTabGrace) return false;
+        return window.Workspace.DbLastWriteUtc > lastSign;
     }
 
     /// <summary>Every visible VS Code window mapped to its real workspace (exact folder,
