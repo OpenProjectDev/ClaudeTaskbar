@@ -9,7 +9,7 @@
     <RootNamespace>ClaudeTaskbar</RootNamespace>
     <!-- The app icon, drawn by OpenDesign (icon/, GPL like the rest). -->
     <ApplicationIcon>..\..\icon\claudetaskbar.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <!-- Pulls in the Windows Desktop shared framework: SoundPlayer lives there (build fails
          with CS0103 without it). The circles and tooltip stay raw Win32. -->
     <UseWindowsForms>true</UseWindowsForms>

@@ -30,11 +30,8 @@ public static class BackgroundTaskTracker
         if (string.IsNullOrEmpty(transcriptPath)) return 0;
         try
         {
-            // The tasks folder uses the same encoded-project name as the transcript's folder.
-            var project = Path.GetFileName(Path.GetDirectoryName(transcriptPath));
-            if (string.IsNullOrEmpty(project)) return 0;
-            var dir = Path.Combine(Path.GetTempPath(), "claude", project, sessionId, "tasks");
-            if (!Directory.Exists(dir)) return 0;
+            var dir = FindTasksDir(sessionId);
+            if (dir == null) return 0;
 
             var running = 0;
             foreach (var file in Directory.EnumerateFiles(dir, "*.output"))
@@ -49,6 +46,31 @@ public static class BackgroundTaskTracker
             DiagLog.Write($"background tasks: failed for {sessionId[..8]}: {ex.GetType().Name}: {ex.Message}");
             return 0;
         }
+    }
+
+    private static readonly Dictionary<string, string> TasksDirs = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The session's tasks folder, `%TEMP%\claude\&lt;project folder&gt;\&lt;sessionId&gt;\tasks`,
+    /// found by the session id rather than computed. BUG found live, 2026-11-09 (a running
+    /// background test showed no yellow): Claude Code renamed the project folder here from
+    /// the encoded project path (the transcript folder's name) to a short hash, such as
+    /// `b9f9d413f6befb30`, so the computed path no longer existed. Session ids are unique, so
+    /// searching the few project folders finds it under either layout. A found folder is
+    /// remembered; a missing one is searched again next time (it appears with the session's
+    /// first background command).</summary>
+    private static string? FindTasksDir(string sessionId)
+    {
+        if (TasksDirs.TryGetValue(sessionId, out var known) && Directory.Exists(known)) return known;
+        var root = Path.Combine(Path.GetTempPath(), "claude");
+        if (!Directory.Exists(root)) return null;
+        foreach (var project in Directory.EnumerateDirectories(root))
+        {
+            var dir = Path.Combine(project, sessionId, "tasks");
+            if (!Directory.Exists(dir)) continue;
+            TasksDirs[sessionId] = dir;
+            return dir;
+        }
+        return null;
     }
 
     private static bool IsHeldForWriting(string path)
