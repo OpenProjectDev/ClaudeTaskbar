@@ -30,16 +30,20 @@ public static class BackgroundTaskTracker
         if (string.IsNullOrEmpty(transcriptPath)) return 0;
         try
         {
+            // Task ids, so a Monitor whose file happens to be held isn't counted twice.
+            var running = new HashSet<string>(StringComparer.Ordinal);
             var dir = FindTasksDir(sessionId);
-            if (dir == null) return 0;
-
-            var running = 0;
-            foreach (var file in Directory.EnumerateFiles(dir, "*.output"))
+            if (dir != null)
             {
-                if (Path.GetFileName(file).StartsWith('a')) continue;
-                if (IsHeldForWriting(file)) running++;
+                foreach (var file in Directory.EnumerateFiles(dir, "*.output"))
+                {
+                    var id = Path.GetFileNameWithoutExtension(file);
+                    if (id.StartsWith('a')) continue;
+                    if (IsHeldForWriting(file)) running.Add(id);
+                }
             }
-            return running;
+            running.UnionWith(MonitorTracker.Running(transcriptPath));
+            return running.Count;
         }
         catch (Exception ex)
         {
