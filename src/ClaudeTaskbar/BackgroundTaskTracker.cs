@@ -42,7 +42,11 @@ public static class BackgroundTaskTracker
                     if (IsHeldForWriting(file)) running.Add(id);
                 }
             }
-            running.UnionWith(MonitorTracker.Running(transcriptPath));
+            // The files the transcript itself names (they can sit under another session id's
+            // folder), then the running Monitors.
+            foreach (var (id, path) in TranscriptTasks.BackgroundOutputs(transcriptPath))
+                if (!running.Contains(id) && File.Exists(path) && IsHeldForWriting(path)) running.Add(id);
+            running.UnionWith(TranscriptTasks.Running(transcriptPath));
             return running.Count;
         }
         catch (Exception ex)

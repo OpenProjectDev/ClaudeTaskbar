@@ -4,7 +4,10 @@ using System.Text.RegularExpressions;
 namespace ClaudeTaskbar;
 
 /// <summary>
-/// Running Monitor tasks of a session, from its transcript. A Monitor is a background watch
+/// A session's background tasks as its transcript records them: Monitors that are running,
+/// and the output files of background shell commands (see <see cref="BackgroundOutputs"/>).
+///
+/// Monitors: running Monitor tasks of a session, from its transcript. A Monitor is a background watch
 /// Claude starts (for example "until the emulator has booted"); Claude ends its turn and is
 /// woken by the Monitor's notification, so the session isn't finished while one runs.
 ///
@@ -23,11 +26,12 @@ namespace ClaudeTaskbar;
 ///
 /// The transcript is read incrementally, as LastActivityReader does: only new complete lines.
 /// </summary>
-public static class MonitorTracker
+public static class TranscriptTasks
 {
     private static readonly TimeSpan ExpiryGrace = TimeSpan.FromMinutes(1);
 
     private static readonly Regex Started = new(@"Monitor started \(task (\w+), expires in (\d+)m", RegexOptions.Compiled);
+    private static readonly Regex BackgroundStarted = new(@"^Command running in background with ID: (\w+)\. Output is being written to: (.+?\.output)", RegexOptions.Compiled);
     private static readonly Regex NotificationId = new(@"<task-id>(\w+)</task-id>", RegexOptions.Compiled);
     private static readonly Regex NotificationStatus = new(@"<status>\w+</status>", RegexOptions.Compiled);
 
@@ -35,9 +39,25 @@ public static class MonitorTracker
     {
         public long Offset;
         public readonly Dictionary<string, DateTime> Expires = new(StringComparer.Ordinal);
+        public readonly Dictionary<string, string> Outputs = new(StringComparer.Ordinal);
     }
 
     private static readonly Dictionary<string, Scan> Scans = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Background shell commands started in this transcript and not yet reported
+    /// finished, with the output file Claude Code named for each. The caller checks whether
+    /// a file is still held open, which is the running signal (BackgroundTaskTracker).
+    ///
+    /// BUG found live, 2026-11-12 (a whole-harness run went on in the background while the
+    /// circle showed green): the command's output file was under a session folder named
+    /// 55dbc4d6-…, not the transcript's own id 263f1a4c-…, so looking it up by session id
+    /// found nothing. The tool result names the exact file: "Command running in background
+    /// with ID: &lt;id&gt;. Output is being written to: &lt;path&gt;."</summary>
+    public static IReadOnlyList<(string Id, string Path)> BackgroundOutputs(string transcriptPath)
+    {
+        var scan = Update(transcriptPath);
+        return scan == null ? Array.Empty<(string, string)>() : scan.Outputs.Select(o => (o.Key, o.Value)).ToList();
+    }
 
     /// <summary>Ids of the Monitors started in this transcript and not yet ended.</summary>
     public static IEnumerable<string> Running(string transcriptPath) => Running(transcriptPath, DateTime.UtcNow);
@@ -60,6 +80,7 @@ public static class MonitorTracker
             {
                 scan.Offset = 0;
                 scan.Expires.Clear();
+                scan.Outputs.Clear();
             }
             if (fs.Length == scan.Offset) return scan;
 
@@ -89,7 +110,7 @@ public static class MonitorTracker
                     consumed += line.Length + 1;
                     from = nl + 1;
 
-                    var start = line.IndexOf(StartMarker) >= 0;
+                    var start = line.IndexOf(StartMarker) >= 0 || line.IndexOf(BackgroundMarker) >= 0;
                     var end = line.IndexOf(EndMarker) >= 0;
                     if (!start && !end) continue;
                     var text = System.Text.Encoding.UTF8.GetString(line);
@@ -108,6 +129,7 @@ public static class MonitorTracker
     }
 
     private static readonly byte[] StartMarker = "Monitor started (task"u8.ToArray();
+    private static readonly byte[] BackgroundMarker = "Command running in background with ID:"u8.ToArray();
     private static readonly byte[] EndMarker = "<task-notification>"u8.ToArray();
 
     /// <summary>A user record whose tool result begins with the Monitor's start line. Only
@@ -126,7 +148,14 @@ public static class MonitorTracker
                 if (item.ValueKind != JsonValueKind.Object
                     || !item.TryGetProperty("type", out var it) || it.GetString() != "tool_result") continue;
                 var text = ResultText(item);
-                if (text == null || !text.StartsWith("Monitor started (task", StringComparison.Ordinal)) continue;
+                if (text == null) continue;
+                var bg = BackgroundStarted.Match(text);
+                if (bg.Success)
+                {
+                    scan.Outputs[bg.Groups[1].Value] = bg.Groups[2].Value;
+                    continue;
+                }
+                if (!text.StartsWith("Monitor started (task", StringComparison.Ordinal)) continue;
                 var m = Started.Match(text);
                 if (!m.Success) continue;
                 var at = root.TryGetProperty("timestamp", out var ts) && ts.TryGetDateTime(out var dt) ? dt.ToUniversalTime() : DateTime.UtcNow;
@@ -154,7 +183,9 @@ public static class MonitorTracker
         foreach (var block in line.Split("<task-notification>").Skip(1))
         {
             var id = NotificationId.Match(block);
-            if (id.Success && NotificationStatus.IsMatch(block)) scan.Expires.Remove(id.Groups[1].Value);
+            if (!id.Success || !NotificationStatus.IsMatch(block)) continue;
+            scan.Expires.Remove(id.Groups[1].Value);
+            scan.Outputs.Remove(id.Groups[1].Value);
         }
     }
 }
