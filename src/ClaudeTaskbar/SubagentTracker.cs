@@ -27,6 +27,12 @@ namespace ClaudeTaskbar;
 /// quiet command inside an agent is covered, because a Bash call times out at 10 minutes by
 /// default.
 ///
+/// BUG found live, 2026-11-22 (a tooltip said "1 subagent running" for ten minutes after
+/// the session's two research agents had returned their reports): an agent the main turn
+/// waits for returns its result as the Agent tool's own result, with `toolUseResult.status`
+/// "completed" and its `agentId`, and no task-notification. Such an agent was counted as
+/// running for 30 minutes after its last write. That result now counts as its notification.
+///
 /// The parent transcript can be tens of MB, so notifications are collected incrementally,
 /// scanning only the newly appended tail, the same way LastActivityReader does.
 /// </summary>
@@ -84,8 +90,8 @@ public static class SubagentTracker
             // A line still being written has no newline yet; stop and pick it up next time.
             if (reader.EndOfStream && !EndsWithNewline(fs)) break;
             consumed += System.Text.Encoding.UTF8.GetByteCount(line) + 1;
-            if (!line.Contains("<task-id>", StringComparison.Ordinal)) continue;
-            Record(line, notified);
+            if (line.Contains("<task-id>", StringComparison.Ordinal)) Record(line, notified);
+            else if (line.Contains("\"agentId\"", StringComparison.Ordinal)) RecordResult(line, notified);
         }
 
         Scans[transcriptPath] = (consumed, notified);
@@ -100,6 +106,26 @@ public static class SubagentTracker
         var last = fs.ReadByte();
         fs.Position = pos;
         return last == '\n';
+    }
+
+    /// <summary>An Agent tool result that finished the agent: `toolUseResult` with an
+    /// `agentId` and a status other than the background launch's.</summary>
+    private static void RecordResult(string line, Dictionary<string, DateTime> notified)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("toolUseResult", out var r) || r.ValueKind != JsonValueKind.Object) return;
+            if (!r.TryGetProperty("agentId", out var idEl) || idEl.ValueKind != JsonValueKind.String) return;
+            if (!r.TryGetProperty("status", out var st) || st.ValueKind != JsonValueKind.String) return;
+            if (st.GetString() is not ("completed" or "failed" or "killed" or "stopped")) return; // async_launched: still running
+            if (!root.TryGetProperty("timestamp", out var t) || !t.TryGetDateTime(out var dt)) return;
+            var id = idEl.GetString()!;
+            var ts = dt.ToUniversalTime();
+            if (!notified.TryGetValue(id, out var prev) || ts > prev) notified[id] = ts;
+        }
+        catch (JsonException) { }
     }
 
     private static void Record(string line, Dictionary<string, DateTime> notified)
