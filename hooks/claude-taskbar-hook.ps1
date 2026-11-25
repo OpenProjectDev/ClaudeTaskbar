@@ -104,6 +104,12 @@ if ($State -eq 'subagent_start' -or $State -eq 'subagent_stop') {
 }
 
 $obj | ConvertTo-Json -Compress | Set-Content -LiteralPath $tmp -Encoding utf8
-Move-Item -LiteralPath $tmp -Destination $file -Force
+# The rename can fail while something has the target open without sharing delete; retry on
+# that failure (the failure is the signal, not a timer), and give up quietly after a few tries.
+for ($try = 0; $try -lt 20; $try++) {
+    $ErrorActionPreference = 'Stop'
+    try { Move-Item -LiteralPath $tmp -Destination $file -Force; break } catch { Start-Sleep -Milliseconds 50 }
+}
+$ErrorActionPreference = 'SilentlyContinue'
 
 exit 0

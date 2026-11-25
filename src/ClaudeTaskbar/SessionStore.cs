@@ -74,7 +74,14 @@ public sealed class SessionStore : IDisposable
         {
             try
             {
-                var json = File.ReadAllText(file);
+                // Shared for writing and deleting too: the hook replaces this file by renaming a
+                // temp file over it, and a reader that refuses to share makes that rename fail
+                // (found 2026-11-25: a Stop hook's "idle" never landed, so a finished session
+                // showed working until its next prompt).
+                string json;
+                using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(fs))
+                    json = reader.ReadToEnd();
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
                 var sessionId = root.GetProperty("sessionId").GetString();
